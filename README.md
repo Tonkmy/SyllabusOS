@@ -1,4 +1,4 @@
-# Agent KB Template
+# SyllabusOS
 
 我做这个仓库，是因为我不想每次开新对话都重新给模型讲背景，也不想把一堆 lecture notes 反复塞进上下文。
 
@@ -11,8 +11,8 @@
 这不是网站，不是 SaaS，也不是那种要搭一堆服务才能跑的项目。  
 它就是一个给个人使用的本地 agent 工作空间模板。
 
-如果你想看完整设计思路、方法论和长期设想，直接看 [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md)。  
-这份 README 只负责一件事：让你尽快用起来。
+如果你想看完整设计思路、方法论和长期设想，请看 [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md)。  
+
 
 ## 这个项目能干嘛
 
@@ -34,6 +34,9 @@
 - 新建 workspace
 - 选择已有 `kind`
 - 没有合适 `kind` 时新建一个
+
+- 目录大致为：～(教务处)/CSCI(学科)/CSCI5305_Reinforcement_Learning(课程)
+- kind是学科模版，例如kind选择为CSCI，那么后续的course agent都是建基于CSCI模版。
 
 你可以直接跟它说人话，比如：
 
