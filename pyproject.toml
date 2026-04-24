@@ -1,0 +1,22 @@
+[project]
+name = "agent-kb-template"
+version = "0.1.0"
+description = "Open-source local LLM workspace template with a registrar and kind-based leaf agents"
+requires-python = ">=3.9"
+readme = "README.md"
+license = { file = "LICENSE" }
+keywords = ["agent", "knowledge-base", "llm", "template", "workspace"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+]
+dependencies = [
+    "markdown>=3.9",
+    "matplotlib>=3.9.4",
+    "pymupdf>=1.26.5",
+    "weasyprint>=66.0",
+]
+
+[tool.uv]
+package = false

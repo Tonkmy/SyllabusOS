@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose a new capability, kind, script behavior, or documentation improvement.
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep requests aligned with the repository goal: a lightweight local agent workspace template for strong models.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or missing capability
+      description: What user workflow is blocked or awkward today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the smallest useful improvement.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Registrar behavior
+        - Kind template
+        - Workspace customization
+        - Scripts and tooling
+        - Documentation
+        - CI / GitHub config
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Explain why existing kinds or current workflow are not enough.

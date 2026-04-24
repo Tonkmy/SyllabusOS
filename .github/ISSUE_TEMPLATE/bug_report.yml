@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a reproducible problem in the template, scripts, or generated workspaces.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for concrete repo bugs. Include the command, the path, and the current workspace kind when relevant.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is broken?
+      placeholder: `scripts/scaffold.py add-workspace` generates the wrong path for custom kinds.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Provide exact commands and paths when possible.
+      placeholder: |
+        1. Run `python3 scripts/scaffold.py add-kind ...`
+        2. Run `python3 scripts/scaffold.py add-workspace ...`
+        3. Open `subjects/...`
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: kind
+    attributes:
+      label: Workspace kind
+      description: If applicable, which kind was involved?
+      placeholder: course / health_coach / custom
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS and Python version
+      placeholder: macOS 15, Python 3.11

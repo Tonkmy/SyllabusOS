@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# Virtual environments
+.venv/
+
+# Local agent/editor state
+.claude/
+**/.claude/
+.idea/
+.vscode/
+
+# OS noise
+.DS_Store
+
+# Generated exports
+subjects/**/notes/exports/
+
+# Optional: uncomment if you keep raw workspace files private
+# subjects/**/materials/

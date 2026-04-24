@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Syntax check
+        run: python -m py_compile scripts/scaffold.py scripts/audit.py scripts/md_to_pdf.py scripts/pdf_to_text.py
+
+      - name: Rebuild derived indexes
+        run: python scripts/scaffold.py rebuild
+
+      - name: List available kinds
+        run: python scripts/scaffold.py list-kinds
+
+      - name: Root audit
+        run: python scripts/audit.py .
+
+      - name: Workspace smoke test
+        shell: bash
+        run: |
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          cp -R . "$tmpdir/repo"
+          cd "$tmpdir/repo"
+          python scripts/scaffold.py add-subject CSCI "Computer Science"
+          python scripts/scaffold.py add-course CSCI RL "Reinforcement Learning"
+          python scripts/audit.py "subjects/CSCI/workspaces/RL Reinforcement Learning"

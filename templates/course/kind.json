@@ -1,0 +1,12 @@
+{
+  "id": "course",
+  "name": "Academic Course",
+  "description": "Professor-style workspace for lecture-driven courses with notes, sources, and chapter synthesis.",
+  "best_for": [
+    "lecture notes",
+    "assignments",
+    "exam preparation",
+    "chapter notes"
+  ],
+  "copied_from": null
+}
