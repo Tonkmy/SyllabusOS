@@ -4,7 +4,8 @@ Run a lightweight consistency audit for the local agent workspace.
 
 Examples:
     uv run python scripts/audit.py
-    uv run python scripts/audit.py subjects/CSCI/workspaces/RL Reinforcement Learning
+    uv run python scripts/audit.py subjects/CSCI/ARIN5204 Reinforcement Learning
+    uv run python scripts/audit.py subjects/HEALTH
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from pathlib import Path
 
 ROOT_MARKERS = ("registry/catalog.json", "scripts/scaffold.py")
 SOURCE_ID_RE = re.compile(r"\bS\d{3}\b")
+VALID_MODES = {"collection", "singleton"}
 
 
 @dataclass
@@ -100,16 +102,16 @@ def normalize_cell(cell: str) -> str:
     return cell.replace("`", "").strip()
 
 
-def gather_material_files(workspace_dir: Path) -> list[Path]:
+def gather_material_files(space_dir: Path) -> list[Path]:
     files: list[Path] = []
-    for path in (workspace_dir / "materials").rglob("*"):
+    for path in (space_dir / "materials").rglob("*"):
         if path.is_file() and path.name != ".gitkeep":
             files.append(path)
     return sorted(files)
 
 
-def gather_note_files(workspace_dir: Path) -> list[Path]:
-    notes_dir = workspace_dir / "notes" / "chapters"
+def gather_note_files(space_dir: Path) -> list[Path]:
+    notes_dir = space_dir / "notes" / "chapters"
     return sorted(
         path for path in notes_dir.glob("*.md") if path.is_file() and path.name != ".gitkeep"
     )
@@ -126,17 +128,68 @@ def gather_kind_ids(root: Path) -> set[str]:
     return kind_ids
 
 
+def normalize_entry(raw_entry: dict, subject_id: str, subject_path: str) -> dict:
+    entry_id = raw_entry["id"]
+    title = raw_entry.get("title", entry_id)
+    folder_name = raw_entry.get("folder_name") or f"{entry_id} {title}"
+    return {
+        "id": entry_id,
+        "title": title,
+        "status": raw_entry.get("status", "new"),
+        "path": raw_entry.get("path", f"{subject_path}/{folder_name}"),
+        "folder_name": folder_name,
+    }
+
+
+def normalize_catalog(catalog: dict) -> dict:
+    subjects = []
+    for raw_subject in catalog.get("subjects", []):
+        subject_id = raw_subject["id"]
+        subject_path = raw_subject.get("path", f"subjects/{subject_id}")
+        raw_entries = raw_subject.get("entries", raw_subject.get("workspaces", []))
+        subjects.append(
+            {
+                "id": subject_id,
+                "name": raw_subject.get("name", subject_id),
+                "kind": raw_subject.get("kind", "course"),
+                "mode": raw_subject.get("mode", "collection"),
+                "path": subject_path,
+                "status": raw_subject.get("status", "new"),
+                "entries": [normalize_entry(entry, subject_id, subject_path) for entry in raw_entries],
+            }
+        )
+    return {
+        "version": catalog.get("version", 3),
+        "updated_at": catalog.get("updated_at"),
+        "subjects": subjects,
+    }
+
+
+def validate_space_files(space_dir: Path, report: Report) -> None:
+    for required in [
+        space_dir / "CLAUDE.md",
+        space_dir / "PROFILE.md",
+        space_dir / "workspace.json",
+        space_dir / "indexes" / "INDEX.md",
+        space_dir / "memory" / "MEMORY.md",
+        space_dir / "skills" / "README.md",
+    ]:
+        if not required.exists():
+            report.error(f"Missing required space file: {required}")
+
+
 def audit_root(root: Path, report: Report) -> None:
     catalog_path = root / "registry" / "catalog.json"
     index_path = root / "registry" / "INDEX.md"
     templates_index_path = root / "templates" / "INDEX.md"
-    catalog = load_json(catalog_path, report)
+    raw_catalog = load_json(catalog_path, report)
     index_text = read_text(index_path, report)
     templates_index_text = read_text(templates_index_path, report)
     kind_ids = gather_kind_ids(root)
-    if not catalog:
+    if not raw_catalog:
         return
 
+    catalog = normalize_catalog(raw_catalog)
     subjects = catalog.get("subjects", [])
     if not subjects:
         report.info("No subjects registered.")
@@ -149,6 +202,12 @@ def audit_root(root: Path, report: Report) -> None:
             continue
         if subject["id"] not in index_text:
             report.warn(f"Registry index may be missing subject ID {subject['id']}")
+        if subject["kind"] not in kind_ids:
+            report.warn(f"Subject kind missing from templates: {subject['kind']}")
+        elif subject["kind"] not in templates_index_text:
+            report.warn(f"Kind index may be missing kind ID {subject['kind']}")
+        if subject["mode"] not in VALID_MODES:
+            report.error(f"Invalid subject mode in catalog: {subject['id']} -> {subject['mode']}")
 
         subject_json_path = subject_path / "subject.json"
         subject_index_path = subject_path / "INDEX.md"
@@ -159,58 +218,50 @@ def audit_root(root: Path, report: Report) -> None:
                 report.warn(f"subject.json ID mismatch for {subject['path']}")
             if subject_json.get("path") != subject["path"]:
                 report.warn(f"subject.json path mismatch for {subject['path']}")
+            if subject_json.get("kind") != subject["kind"]:
+                report.warn(f"subject.json kind mismatch for {subject['path']}")
+            if subject_json.get("mode") != subject["mode"]:
+                report.warn(f"subject.json mode mismatch for {subject['path']}")
 
-        for workspace in subject.get("workspaces", []):
-            workspace_path = root / workspace["path"]
-            if not workspace_path.is_dir():
-                report.error(f"Workspace path missing: {workspace['path']}")
-                continue
-            if workspace["id"] not in index_text:
-                report.warn(f"Registry index may be missing workspace ID {workspace['id']}")
-            if workspace["id"] not in subject_index_text:
-                report.warn(f"Subject index may be missing workspace ID {workspace['id']} in {subject['path']}")
-
-            for required in [
-                workspace_path / "CLAUDE.md",
-                workspace_path / "PROFILE.md",
-                workspace_path / "workspace.json",
-                workspace_path / "indexes" / "INDEX.md",
-                workspace_path / "memory" / "MEMORY.md",
-                workspace_path / "skills" / "README.md",
-            ]:
-                if not required.exists():
-                    report.error(f"Missing required workspace file: {required}")
-
-            workspace_json = load_json(workspace_path / "workspace.json", report)
+        if subject["mode"] == "singleton":
+            validate_space_files(subject_path, report)
+            workspace_json = load_json(subject_path / "workspace.json", report)
             if workspace_json:
-                if workspace_json.get("workspace_id") != workspace["id"]:
-                    report.warn(f"workspace.json ID mismatch in {workspace['path']}")
-                if workspace_json.get("path") != workspace["path"]:
-                    report.warn(f"workspace.json path mismatch in {workspace['path']}")
-                if workspace_json.get("kind") != workspace["kind"]:
-                    report.warn(f"workspace.json kind mismatch in {workspace['path']}")
+                if workspace_json.get("workspace_id") != subject["id"]:
+                    report.warn(f"workspace.json ID mismatch in singleton subject {subject['path']}")
+                if workspace_json.get("path") != subject["path"]:
+                    report.warn(f"workspace.json path mismatch in singleton subject {subject['path']}")
+                if workspace_json.get("kind") != subject["kind"]:
+                    report.warn(f"workspace.json kind mismatch in singleton subject {subject['path']}")
+            continue
 
-            if workspace["kind"] not in kind_ids:
-                report.warn(f"Workspace kind missing from templates: {workspace['kind']}")
-            elif workspace["kind"] not in templates_index_text:
-                report.warn(f"Kind index may be missing kind ID {workspace['kind']}")
+        for entry in subject.get("entries", []):
+            entry_path = root / entry["path"]
+            if not entry_path.is_dir():
+                report.error(f"Child space path missing: {entry['path']}")
+                continue
+            if entry["id"] not in index_text:
+                report.warn(f"Registry index may be missing child ID {entry['id']}")
+            if entry["id"] not in subject_index_text:
+                report.warn(f"Subject index may be missing child ID {entry['id']} in {subject['path']}")
+
+            validate_space_files(entry_path, report)
+            workspace_json = load_json(entry_path / "workspace.json", report)
+            if workspace_json:
+                if workspace_json.get("workspace_id") != entry["id"]:
+                    report.warn(f"workspace.json ID mismatch in {entry['path']}")
+                if workspace_json.get("path") != entry["path"]:
+                    report.warn(f"workspace.json path mismatch in {entry['path']}")
+                if workspace_json.get("kind") != subject["kind"]:
+                    report.warn(f"workspace.json kind mismatch in {entry['path']}")
 
 
-def audit_workspace(workspace_dir: Path, report: Report) -> None:
-    for required in [
-        workspace_dir / "CLAUDE.md",
-        workspace_dir / "PROFILE.md",
-        workspace_dir / "workspace.json",
-        workspace_dir / "indexes" / "INDEX.md",
-        workspace_dir / "memory" / "MEMORY.md",
-        workspace_dir / "skills" / "README.md",
-    ]:
-        if not required.exists():
-            report.error(f"Missing required workspace file: {required}")
+def audit_workspace(space_dir: Path, report: Report) -> None:
+    validate_space_files(space_dir, report)
 
-    workspace_json = load_json(workspace_dir / "workspace.json", report)
-    index_text = read_text(workspace_dir / "indexes" / "INDEX.md", report)
-    memory_text = read_text(workspace_dir / "memory" / "MEMORY.md", report)
+    workspace_json = load_json(space_dir / "workspace.json", report)
+    index_text = read_text(space_dir / "indexes" / "INDEX.md", report)
+    memory_text = read_text(space_dir / "memory" / "MEMORY.md", report)
     if not workspace_json:
         return
 
@@ -231,41 +282,39 @@ def audit_workspace(workspace_dir: Path, report: Report) -> None:
     indexed_source_paths = {normalize_cell(row[4]) for row in source_rows if len(row) >= 5}
     indexed_note_paths = {normalize_cell(row[3]) for row in note_rows if len(row) >= 4}
 
-    inbox_files = [
-        path for path in (workspace_dir / "materials" / "inbox").rglob("*")
-        if path.is_file() and path.name != ".gitkeep"
-    ]
+    inbox_dir = space_dir / "materials" / "inbox"
+    inbox_files = [path for path in inbox_dir.rglob("*") if path.is_file() and path.name != ".gitkeep"]
     if inbox_files:
         report.warn(f"{len(inbox_files)} file(s) still in materials/inbox/")
 
-    for material_file in gather_material_files(workspace_dir):
-        rel_path = material_file.relative_to(workspace_dir).as_posix()
+    for material_file in gather_material_files(space_dir):
+        rel_path = material_file.relative_to(space_dir).as_posix()
         if rel_path not in indexed_source_paths:
             report.warn(f"Material not listed in Source Inventory: {rel_path}")
 
-    for note_file in gather_note_files(workspace_dir):
-        rel_path = note_file.relative_to(workspace_dir).as_posix()
+    for note_file in gather_note_files(space_dir):
+        rel_path = note_file.relative_to(space_dir).as_posix()
         if rel_path not in indexed_note_paths and note_file.name not in index_text:
             report.warn(f"Note not listed in Note Inventory: {rel_path}")
         note_text = note_file.read_text(encoding="utf-8")
         if not SOURCE_ID_RE.search(note_text):
             report.warn(f"Note does not reference a source ID: {rel_path}")
 
-        export_path = workspace_dir / "notes" / "exports" / f"{note_file.stem}.pdf"
+        export_path = space_dir / "notes" / "exports" / f"{note_file.stem}.pdf"
         if not export_path.exists():
             report.warn(f"Missing PDF export for note: {rel_path}")
         elif export_path.stat().st_mtime < note_file.stat().st_mtime:
-            report.warn(f"PDF export older than note: {export_path.relative_to(workspace_dir).as_posix()}")
+            report.warn(f"PDF export older than note: {export_path.relative_to(space_dir).as_posix()}")
 
     for row in source_rows:
         if len(row) >= 5:
-            source_path = workspace_dir / normalize_cell(row[4])
+            source_path = space_dir / normalize_cell(row[4])
             if not source_path.exists():
                 report.warn(f"Indexed source path missing on disk: {normalize_cell(row[4])}")
 
     for row in note_rows:
         if len(row) >= 5:
-            note_path = workspace_dir / normalize_cell(row[3])
+            note_path = space_dir / normalize_cell(row[3])
             source_ids = normalize_cell(row[4])
             if not note_path.exists():
                 report.warn(f"Indexed note path missing on disk: {normalize_cell(row[3])}")
@@ -296,7 +345,7 @@ def parse_args() -> argparse.Namespace:
         "path",
         nargs="?",
         default=".",
-        help="repository root or a single workspace directory (default: current directory)",
+        help="repository root or a single active space directory (default: current directory)",
     )
     return parser.parse_args()
 
@@ -315,7 +364,7 @@ def main() -> None:
     elif target == root:
         audit_root(root, report)
     else:
-        report.error("Audit target must be the repository root or a workspace directory.")
+        report.error("Audit target must be the repository root or a single active space directory.")
 
     print_report(report)
     sys.exit(report.exit_code())

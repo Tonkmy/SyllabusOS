@@ -29,7 +29,7 @@ cp -R . "$tmpdir/repo"
 cd "$tmpdir/repo"
 python3 scripts/scaffold.py add-subject CSCI "Computer Science"
 python3 scripts/scaffold.py add-course CSCI RL "Reinforcement Learning"
-python3 scripts/audit.py "subjects/CSCI/workspaces/RL Reinforcement Learning"
+python3 scripts/audit.py "subjects/CSCI/RL Reinforcement Learning"
 ```
 
 ## Pull Request Expectations

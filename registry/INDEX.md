@@ -4,12 +4,12 @@ This file is maintained from `registry/catalog.json`.
 
 ## Subjects
 
-| Subject ID | Name | Workspaces | Path |
-| --- | --- | --- | --- |
-| *(none yet)* |  | 0 |  |
+| Subject ID | Name | Kind | Mode | Children | Path |
+| --- | --- | --- | --- | --- | --- |
+| *(none yet)* |  |  |  | 0 |  |
 
-## Workspaces
+## Active Spaces
 
-| Subject | Workspace ID | Title | Kind | Status | Path |
+| Subject | Space ID | Title | Kind | Status | Path |
 | --- | --- | --- | --- | --- | --- |
 | *(none yet)* |  |  |  |  |  |

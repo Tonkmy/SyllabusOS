@@ -36,7 +36,7 @@ jobs:
       - name: Root audit
         run: python scripts/audit.py .
 
-      - name: Workspace smoke test
+      - name: Subject layout smoke test
         shell: bash
         run: |
           tmpdir="$(mktemp -d)"
@@ -45,4 +45,7 @@ jobs:
           cd "$tmpdir/repo"
           python scripts/scaffold.py add-subject CSCI "Computer Science"
           python scripts/scaffold.py add-course CSCI RL "Reinforcement Learning"
-          python scripts/audit.py "subjects/CSCI/workspaces/RL Reinforcement Learning"
+          python scripts/scaffold.py add-kind health_coach --name "Health Coach" --description "Health coaching subject" --from-kind course
+          python scripts/scaffold.py add-subject HEALTH "Health" --kind health_coach --mode singleton
+          python scripts/audit.py "subjects/CSCI/RL Reinforcement Learning"
+          python scripts/audit.py "subjects/HEALTH"

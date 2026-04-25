@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Create and maintain subject/workspace scaffolds for the local agent workspace.
+Create and maintain subject-based scaffolds for the local agent workspace.
 
 Examples:
     uv run python scripts/scaffold.py add-subject CSCI "Computer Science"
-    uv run python scripts/scaffold.py add-workspace CSCI RL "Reinforcement Learning" --kind course
+    uv run python scripts/scaffold.py add-subject HEALTH "Health" --kind health_coach --mode singleton
+    uv run python scripts/scaffold.py add-workspace CSCI RL "Reinforcement Learning"
     uv run python scripts/scaffold.py add-course CSCI ARIN5204 "Reinforcement Learning"
-    uv run python scripts/scaffold.py add-kind health_coach --name "Health Coach" --description "Health coaching workspace"
+    uv run python scripts/scaffold.py add-kind health_coach --name "Health Coach" --description "Health coaching subject/workspace"
     uv run python scripts/scaffold.py list
     uv run python scripts/scaffold.py list-kinds
     uv run python scripts/scaffold.py rebuild
@@ -27,6 +28,7 @@ REGISTRY_DIR = ROOT / "registry"
 CATALOG_PATH = REGISTRY_DIR / "catalog.json"
 TEMPLATES_DIR = ROOT / "templates"
 TEMPLATES_INDEX_PATH = TEMPLATES_DIR / "INDEX.md"
+VALID_MODES = {"collection", "singleton"}
 
 
 def now_iso() -> str:
@@ -55,19 +57,15 @@ def sanitize_title(value: str) -> str:
     return clean
 
 
-def load_catalog() -> dict:
-    if not CATALOG_PATH.exists():
-        return {"version": 2, "updated_at": None, "subjects": []}
-    return json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+def sanitize_mode(value: str) -> str:
+    clean = value.strip().lower()
+    if clean not in VALID_MODES:
+        raise ValueError("mode must be 'collection' or 'singleton'")
+    return clean
 
 
-def save_catalog(catalog: dict) -> None:
-    catalog["version"] = 2
-    catalog["updated_at"] = now_iso()
-    CATALOG_PATH.write_text(
-        json.dumps(catalog, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+def title_from_kind_id(kind_id: str) -> str:
+    return kind_id.replace("_", " ").replace("-", " ").title()
 
 
 def render_template(template_path: Path, replacements: dict[str, str]) -> str:
@@ -91,15 +89,11 @@ def render_directory(template_dir: Path, dest_dir: Path, replacements: dict[str,
     for template_path in template_dir.rglob("*"):
         if not template_path.is_file():
             continue
-        if template_path.name == "kind.json":
+        if template_path.name in {"kind.json", ".DS_Store"}:
             continue
         relative_path = template_path.relative_to(template_dir)
         output_path = dest_dir / relative_path
         write_file(output_path, render_template(template_path, replacements))
-
-
-def title_from_kind_id(kind_id: str) -> str:
-    return kind_id.replace("_", " ").replace("-", " ").title()
 
 
 def load_kind_metadata(kind_id: str) -> dict:
@@ -130,6 +124,73 @@ def iter_kind_metadata() -> list[dict]:
             continue
         kinds.append(load_kind_metadata(path.name))
     return kinds
+
+
+def normalize_entry(raw_entry: dict, subject_id: str, subject_path: str) -> dict:
+    entry_id = sanitize_id(raw_entry["id"])
+    title = sanitize_title(raw_entry.get("title", entry_id))
+    folder_name = raw_entry.get("folder_name") or f"{entry_id} {title}"
+    return {
+        "id": entry_id,
+        "title": title,
+        "status": raw_entry.get("status", "new"),
+        "path": raw_entry.get("path", f"{subject_path}/{folder_name}"),
+        "folder_name": folder_name,
+    }
+
+
+def normalize_subject(raw_subject: dict) -> dict:
+    subject_id = sanitize_id(raw_subject["id"])
+    subject_name = sanitize_title(raw_subject.get("name", subject_id))
+    subject_path = raw_subject.get("path", f"subjects/{subject_id}")
+
+    if "entries" in raw_subject:
+        raw_entries = raw_subject.get("entries", [])
+        inferred_kind = raw_subject.get("kind", "course")
+    else:
+        raw_entries = raw_subject.get("workspaces", [])
+        kinds = {item.get("kind", "course") for item in raw_entries}
+        inferred_kind = next(iter(kinds)) if len(kinds) == 1 else "course"
+
+    kind_id = sanitize_kind_id(raw_subject.get("kind", inferred_kind))
+    mode = sanitize_mode(raw_subject.get("mode", "collection"))
+
+    return {
+        "id": subject_id,
+        "name": subject_name,
+        "kind": kind_id,
+        "mode": mode,
+        "path": subject_path,
+        "status": raw_subject.get("status", "new" if mode == "singleton" else "active"),
+        "entries": [normalize_entry(item, subject_id, subject_path) for item in raw_entries],
+    }
+
+
+def normalize_catalog(raw: dict) -> dict:
+    catalog = {
+        "version": 3,
+        "updated_at": raw.get("updated_at"),
+        "subjects": [],
+    }
+    for raw_subject in raw.get("subjects", []):
+        catalog["subjects"].append(normalize_subject(raw_subject))
+    return catalog
+
+
+def load_catalog() -> dict:
+    if not CATALOG_PATH.exists():
+        return {"version": 3, "updated_at": None, "subjects": []}
+    raw = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+    return normalize_catalog(raw)
+
+
+def save_catalog(catalog: dict) -> None:
+    catalog["version"] = 3
+    catalog["updated_at"] = now_iso()
+    CATALOG_PATH.write_text(
+        json.dumps(catalog, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
 
 
 def find_subject(catalog: dict, subject_id: str) -> dict | None:
@@ -163,6 +224,28 @@ def build_templates_index() -> str:
     return "\n".join(lines)
 
 
+def iter_active_spaces(catalog: dict) -> list[tuple[dict, dict]]:
+    spaces: list[tuple[dict, dict]] = []
+    for subject in catalog["subjects"]:
+        if subject["mode"] == "singleton":
+            spaces.append(
+                (
+                    subject,
+                    {
+                        "id": subject["id"],
+                        "title": subject["name"],
+                        "status": subject.get("status", "new"),
+                        "path": subject["path"],
+                        "folder_name": Path(subject["path"]).name,
+                    },
+                )
+            )
+        else:
+            for entry in subject["entries"]:
+                spaces.append((subject, entry))
+    return spaces
+
+
 def build_registry_index(catalog: dict) -> str:
     lines = [
         "# Registry Index",
@@ -171,37 +254,35 @@ def build_registry_index(catalog: dict) -> str:
         "",
         "## Subjects",
         "",
-        "| Subject ID | Name | Workspaces | Path |",
-        "| --- | --- | --- | --- |",
+        "| Subject ID | Name | Kind | Mode | Children | Path |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     if catalog["subjects"]:
         for subject in sorted(catalog["subjects"], key=lambda item: item["id"]):
+            child_count = 1 if subject["mode"] == "singleton" else len(subject["entries"])
             lines.append(
-                f"| {subject['id']} | {subject['name']} | "
-                f"{len(subject['workspaces'])} | `{subject['path']}` |"
+                f"| {subject['id']} | {subject['name']} | {subject['kind']} | "
+                f"{subject['mode']} | {child_count} | `{subject['path']}` |"
             )
     else:
-        lines.append("| *(none yet)* |  | 0 |  |")
+        lines.append("| *(none yet)* |  |  |  | 0 |  |")
 
     lines.extend(
         [
             "",
-            "## Workspaces",
+            "## Active Spaces",
             "",
-            "| Subject | Workspace ID | Title | Kind | Status | Path |",
+            "| Subject | Space ID | Title | Kind | Status | Path |",
             "| --- | --- | --- | --- | --- | --- |",
         ]
     )
 
-    workspaces = []
-    for subject in catalog["subjects"]:
-        for workspace in subject["workspaces"]:
-            workspaces.append((subject["id"], workspace))
-    if workspaces:
-        for subject_id, workspace in sorted(workspaces, key=lambda item: (item[0], item[1]["id"])):
+    spaces = iter_active_spaces(catalog)
+    if spaces:
+        for subject, entry in sorted(spaces, key=lambda item: (item[0]["id"], item[1]["id"])):
             lines.append(
-                f"| {subject_id} | {workspace['id']} | {workspace['title']} | "
-                f"{workspace['kind']} | {workspace['status']} | `{workspace['path']}` |"
+                f"| {subject['id']} | {entry['id']} | {entry['title']} | "
+                f"{subject['kind']} | {entry['status']} | `{entry['path']}` |"
             )
     else:
         lines.append("| *(none yet)* |  |  |  |  |  |")
@@ -219,22 +300,45 @@ def build_subject_index(subject: dict) -> str:
         "",
         f"- Subject ID: `{subject['id']}`",
         f"- Subject name: `{subject['name']}`",
-        f"- Workspaces: {len(subject['workspaces'])}",
-        "",
-        "## Workspaces",
-        "",
-        "| Workspace ID | Title | Kind | Status | Path |",
-        "| --- | --- | --- | --- | --- |",
+        f"- Kind: `{subject['kind']}`",
+        f"- Mode: `{subject['mode']}`",
     ]
-    if subject["workspaces"]:
-        for workspace in sorted(subject["workspaces"], key=lambda item: item["id"]):
-            relative_path = f"workspaces/{workspace['folder_name']}"
+
+    if subject["mode"] == "singleton":
+        lines.extend(
+            [
+                f"- Active path: `{subject['path']}`",
+                f"- Status: `{subject.get('status', 'new')}`",
+                "",
+                "## Active Space",
+                "",
+                "This subject is itself the active space.",
+                "",
+                "- Open this subject folder directly when you want the agent to work.",
+                "- Root files such as `CLAUDE.md`, `PROFILE.md`, `indexes/`, and `notes/` live here.",
+                "",
+            ]
+        )
+        return "\n".join(lines)
+
+    lines.extend(
+        [
+            f"- Child spaces: {len(subject['entries'])}",
+            "",
+            "## Child Spaces",
+            "",
+            "| Space ID | Title | Status | Path |",
+            "| --- | --- | --- | --- |",
+        ]
+    )
+    if subject["entries"]:
+        for entry in sorted(subject["entries"], key=lambda item: item["id"]):
             lines.append(
-                f"| {workspace['id']} | {workspace['title']} | {workspace['kind']} | "
-                f"{workspace['status']} | `{relative_path}` |"
+                f"| {entry['id']} | {entry['title']} | {entry['status']} | "
+                f"`{entry['folder_name']}` |"
             )
     else:
-        lines.append("| *(none yet)* |  |  |  |  |")
+        lines.append("| *(none yet)* |  |  |  |")
     lines.append("")
     return "\n".join(lines)
 
@@ -242,14 +346,18 @@ def build_subject_index(subject: dict) -> str:
 def rebuild_indexes(catalog: dict) -> None:
     write_file(REGISTRY_DIR / "INDEX.md", build_registry_index(catalog))
     write_file(TEMPLATES_INDEX_PATH, build_templates_index())
+
     for subject in catalog["subjects"]:
         subject_dir = ROOT / subject["path"]
         subject_meta = {
             "id": subject["id"],
             "name": subject["name"],
+            "kind": subject["kind"],
+            "mode": subject["mode"],
             "path": subject["path"],
-            "workspace_count": len(subject["workspaces"]),
-            "workspaces": subject["workspaces"],
+            "status": subject.get("status", "new" if subject["mode"] == "singleton" else "active"),
+            "entry_count": 1 if subject["mode"] == "singleton" else len(subject["entries"]),
+            "entries": subject["entries"],
             "updated_at": catalog["updated_at"],
         }
         write_file(
@@ -259,29 +367,107 @@ def rebuild_indexes(catalog: dict) -> None:
         write_file(subject_dir / "INDEX.md", build_subject_index(subject))
 
 
+def ensure_space_dirs(space_dir: Path) -> None:
+    for directory in [
+        space_dir / "materials" / "inbox",
+        space_dir / "materials" / "lectures",
+        space_dir / "materials" / "assignments",
+        space_dir / "materials" / "references",
+        space_dir / "notes" / "chapters",
+        space_dir / "notes" / "exports",
+    ]:
+        directory.mkdir(parents=True, exist_ok=True)
+
+    for keep_path in [
+        space_dir / "materials" / "inbox" / ".gitkeep",
+        space_dir / "materials" / "lectures" / ".gitkeep",
+        space_dir / "materials" / "assignments" / ".gitkeep",
+        space_dir / "materials" / "references" / ".gitkeep",
+        space_dir / "notes" / "chapters" / ".gitkeep",
+        space_dir / "notes" / "exports" / ".gitkeep",
+    ]:
+        touch_keep(keep_path)
+
+
+def scaffold_space(
+    *,
+    subject_id: str,
+    subject_name: str,
+    kind_id: str,
+    space_id: str,
+    space_title: str,
+    space_path: str,
+    space_dir: Path,
+) -> None:
+    kind = load_kind_metadata(kind_id)
+    kind_dir = ROOT / kind["path"]
+    ensure_space_dirs(space_dir)
+
+    replacements = {
+        "SUBJECT_ID": subject_id,
+        "WORKSPACE_ID": space_id,
+        "WORKSPACE_TITLE": space_title,
+        "WORKSPACE_PATH": space_path,
+        "KIND_ID": kind_id,
+        "KIND_NAME": kind["name"],
+    }
+    render_directory(kind_dir, space_dir, replacements)
+
+    workspace_meta = {
+        "subject_id": subject_id,
+        "workspace_id": space_id,
+        "workspace_title": space_title,
+        "kind": kind_id,
+        "path": space_path,
+        "status": "new",
+    }
+    write_file(
+        space_dir / "workspace.json",
+        json.dumps(workspace_meta, indent=2, ensure_ascii=False) + "\n",
+    )
+
+
 def add_subject(args: argparse.Namespace) -> None:
     subject_id = sanitize_id(args.subject_id)
     subject_name = sanitize_title(args.subject_name)
+    kind_id = sanitize_kind_id(args.kind)
+    mode = sanitize_mode(args.mode)
+
     catalog = load_catalog()
     if find_subject(catalog, subject_id):
         raise SystemExit(f"subject already exists: {subject_id}")
 
+    load_kind_metadata(kind_id)
+
     subject_path = f"subjects/{subject_id}"
     subject_dir = ROOT / subject_path
-    (subject_dir / "workspaces").mkdir(parents=True, exist_ok=True)
-    touch_keep(subject_dir / "workspaces" / ".gitkeep")
+    subject_dir.mkdir(parents=True, exist_ok=True)
 
-    catalog["subjects"].append(
-        {
-            "id": subject_id,
-            "name": subject_name,
-            "path": subject_path,
-            "workspaces": [],
-        }
-    )
+    subject_record = {
+        "id": subject_id,
+        "name": subject_name,
+        "kind": kind_id,
+        "mode": mode,
+        "path": subject_path,
+        "status": "new" if mode == "singleton" else "active",
+        "entries": [],
+    }
+
+    if mode == "singleton":
+        scaffold_space(
+            subject_id=subject_id,
+            subject_name=subject_name,
+            kind_id=kind_id,
+            space_id=subject_id,
+            space_title=subject_name,
+            space_path=subject_path,
+            space_dir=subject_dir,
+        )
+
+    catalog["subjects"].append(subject_record)
     save_catalog(catalog)
     rebuild_indexes(catalog)
-    print(f"Created subject: {subject_id} -> {subject_path}")
+    print(f"Created subject: {subject_id} -> {subject_path} [{kind_id}, {mode}]")
 
 
 def add_kind(args: argparse.Namespace) -> None:
@@ -317,69 +503,41 @@ def add_workspace(args: argparse.Namespace) -> None:
     subject_id = sanitize_id(args.subject_id)
     workspace_id = sanitize_id(args.workspace_id)
     workspace_title = sanitize_title(args.workspace_title)
-    kind_id = sanitize_kind_id(args.kind)
 
     catalog = load_catalog()
     subject = find_subject(catalog, subject_id)
     if not subject:
         raise SystemExit(f"unknown subject: {subject_id}")
-    if any(workspace["id"] == workspace_id for workspace in subject["workspaces"]):
-        raise SystemExit(f"workspace already exists in {subject_id}: {workspace_id}")
+    if subject["mode"] != "collection":
+        raise SystemExit(f"subject {subject_id} is a singleton subject; open it directly instead of adding child spaces")
+    if any(entry["id"] == workspace_id for entry in subject["entries"]):
+        raise SystemExit(f"space already exists in {subject_id}: {workspace_id}")
 
-    kind = load_kind_metadata(kind_id)
-    kind_dir = ROOT / kind["path"]
+    subject_kind = subject["kind"]
+    requested_kind = sanitize_kind_id(args.kind) if args.kind else subject_kind
+    if requested_kind != subject_kind:
+        raise SystemExit(
+            f"subject {subject_id} uses kind `{subject_kind}`; child spaces under this subject must use the same kind"
+        )
+
     folder_name = f"{workspace_id} {workspace_title}"
-    workspace_path = f"{subject['path']}/workspaces/{folder_name}"
+    workspace_path = f"{subject['path']}/{folder_name}"
     workspace_dir = ROOT / workspace_path
 
-    for directory in [
-        workspace_dir / "materials" / "inbox",
-        workspace_dir / "materials" / "lectures",
-        workspace_dir / "materials" / "assignments",
-        workspace_dir / "materials" / "references",
-        workspace_dir / "notes" / "chapters",
-        workspace_dir / "notes" / "exports",
-    ]:
-        directory.mkdir(parents=True, exist_ok=True)
-
-    for keep_path in [
-        workspace_dir / "materials" / "inbox" / ".gitkeep",
-        workspace_dir / "materials" / "lectures" / ".gitkeep",
-        workspace_dir / "materials" / "assignments" / ".gitkeep",
-        workspace_dir / "materials" / "references" / ".gitkeep",
-        workspace_dir / "notes" / "chapters" / ".gitkeep",
-        workspace_dir / "notes" / "exports" / ".gitkeep",
-    ]:
-        touch_keep(keep_path)
-
-    replacements = {
-        "SUBJECT_ID": subject_id,
-        "WORKSPACE_ID": workspace_id,
-        "WORKSPACE_TITLE": workspace_title,
-        "WORKSPACE_PATH": workspace_path,
-        "KIND_ID": kind_id,
-        "KIND_NAME": kind["name"],
-    }
-    render_directory(kind_dir, workspace_dir, replacements)
-
-    workspace_meta = {
-        "subject_id": subject_id,
-        "workspace_id": workspace_id,
-        "workspace_title": workspace_title,
-        "kind": kind_id,
-        "path": workspace_path,
-        "status": "new",
-    }
-    write_file(
-        workspace_dir / "workspace.json",
-        json.dumps(workspace_meta, indent=2, ensure_ascii=False) + "\n",
+    scaffold_space(
+        subject_id=subject_id,
+        subject_name=subject["name"],
+        kind_id=subject_kind,
+        space_id=workspace_id,
+        space_title=workspace_title,
+        space_path=workspace_path,
+        space_dir=workspace_dir,
     )
 
-    subject["workspaces"].append(
+    subject["entries"].append(
         {
             "id": workspace_id,
             "title": workspace_title,
-            "kind": kind_id,
             "status": "new",
             "path": workspace_path,
             "folder_name": folder_name,
@@ -387,10 +545,18 @@ def add_workspace(args: argparse.Namespace) -> None:
     )
     save_catalog(catalog)
     rebuild_indexes(catalog)
-    print(f"Created workspace: {workspace_id} -> {workspace_path}")
+    print(f"Created child space: {workspace_id} -> {workspace_path} [{subject_kind}]")
 
 
 def add_course(args: argparse.Namespace) -> None:
+    catalog = load_catalog()
+    subject_id = sanitize_id(args.subject_id)
+    subject = find_subject(catalog, subject_id)
+    if not subject:
+        raise SystemExit(f"unknown subject: {subject_id}")
+    if subject["kind"] != "course" or subject["mode"] != "collection":
+        raise SystemExit(f"subject {subject_id} is not a course collection")
+
     add_workspace(
         argparse.Namespace(
             subject_id=args.subject_id,
@@ -406,13 +572,17 @@ def list_catalog(_: argparse.Namespace) -> None:
     if not catalog["subjects"]:
         print("No subjects registered.")
         return
+
     for subject in sorted(catalog["subjects"], key=lambda item: item["id"]):
-        print(f"{subject['id']}  {subject['name']}  ({len(subject['workspaces'])} workspace(s))")
-        for workspace in sorted(subject["workspaces"], key=lambda item: item["id"]):
+        if subject["mode"] == "singleton":
+            print(f"{subject['id']}  {subject['name']}  [{subject['kind']}, singleton]")
+        else:
             print(
-                f"  - {workspace['id']}  {workspace['title']}  "
-                f"[{workspace['kind']}, {workspace['status']}]"
+                f"{subject['id']}  {subject['name']}  "
+                f"[{subject['kind']}, collection] ({len(subject['entries'])} child space(s))"
             )
+            for entry in sorted(subject["entries"], key=lambda item: item["id"]):
+                print(f"  - {entry['id']}  {entry['title']}  [{entry['status']}]")
 
 
 def list_kinds(_: argparse.Namespace) -> None:
@@ -437,20 +607,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    add_subject_parser = subparsers.add_parser("add-subject", help="create a subject container")
+    add_subject_parser = subparsers.add_parser("add-subject", help="create a subject")
     add_subject_parser.add_argument("subject_id")
     add_subject_parser.add_argument("subject_name")
+    add_subject_parser.add_argument("--kind", default="course")
+    add_subject_parser.add_argument("--mode", default="collection", choices=sorted(VALID_MODES))
     add_subject_parser.set_defaults(func=add_subject)
 
-    add_workspace_parser = subparsers.add_parser("add-workspace", help="create a workspace")
+    add_workspace_parser = subparsers.add_parser(
+        "add-workspace",
+        help="create a child space under a collection subject using that subject's kind",
+    )
     add_workspace_parser.add_argument("subject_id")
     add_workspace_parser.add_argument("workspace_id")
     add_workspace_parser.add_argument("workspace_title")
-    add_workspace_parser.add_argument("--kind", default="course")
+    add_workspace_parser.add_argument("--kind")
     add_workspace_parser.set_defaults(func=add_workspace)
 
     add_course_parser = subparsers.add_parser(
-        "add-course", help="create an academic workspace using the default `course` kind"
+        "add-course",
+        help="create a course folder under a subject whose kind is `course` and mode is `collection`",
     )
     add_course_parser.add_argument("subject_id")
     add_course_parser.add_argument("course_id")

@@ -5,7 +5,7 @@
 所以我把它做成了一个很朴素的东西：
 
 - 在根目录打开 Claude / Codex / ChatGPT，它就是教务处
-- 进入某个 workspace 再打开，它就是这个 workspace 的专属 agent
+- 进入具体 subject 或 course folder 再打开，它就是那个空间里的专属 agent
 - 资料放进文件夹，知识沉淀回笔记，状态尽量留在仓库里
 
 这不是网站，不是 SaaS，也不是那种要搭一堆服务才能跑的项目。  
@@ -13,6 +13,21 @@
 
 如果你想看完整设计思路、方法论和长期设想，请看 [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md)。  
 
+
+## 先理解一个最重要的点
+
+这个仓库现在是 **subject 驱动** 的，不是 `subject/workspaces/...` 那种结构。
+
+也就是说：
+
+- `subjects/CSCI` 代表这是一个 `course` 型集合
+- `subjects/CSCI/ARIN5204 Reinforcement Learning` 这种目录，才是具体课程
+- `subjects/HEALTH` 这种目录，也可以直接就是一个顶层工作空间
+
+简单说：
+
+- 有些 subject 是 **集合**
+- 有些 subject 本身就是 **工作空间**
 
 ## 这个项目能干嘛
 
@@ -22,7 +37,7 @@
 - lecture notes 整理
 - 按章节沉淀 Markdown 笔记
 - 让 agent 在课程语境里回答问题
-- 做非课程类的个人 workspace，比如健康助手、面试准备、项目研究空间
+- 做非课程类的个人空间，比如健康助手、面试准备、项目研究空间
 
 ## 你只要记住这套用法
 
@@ -30,32 +45,48 @@
 
 根目录的 agent 是教务处，负责：
 
-- 新建学科
-- 新建 workspace
-- 选择已有 `kind`
-- 没有合适 `kind` 时新建一个
-
-- 目录大致为：～(教务处)/CSCI(学科)/CSCI5305_Reinforcement_Learning(课程)
-- kind是学科模版，例如kind选择为CSCI，那么后续的course agent都是建基于CSCI模版。
+- 新建 subject
+- 判断这个 subject 属于什么 `kind`
+- 新建课程
+- 新建新的 `kind`
 
 你可以直接跟它说人话，比如：
 
 - “帮我新建一个 CSCI 学科”
 - “在 CSCI 下面加一门 Reinforcement Learning”
-- “我想建一个健康饮食教练 workspace，看看有没有合适 kind，没有就新建一个”
+- “我想建一个 Health 空间，作为健康饮食教练”
+- “我想建一个 Interview Coach，如果没有合适 kind 就新建一个”
 
-### 2. 进入目标 workspace 再打开 agent
+### 2. 进入目标目录再打开 agent
 
-到了 workspace 目录后，这个 agent 才开始干具体活。
+常见有两种情况：
 
-常见动作就是：
+#### 情况 A：这是一个课程集合 subject
 
-- 看资料
-- 整理资料
-- 更新索引
-- 写章节笔记
-- 回答问题
-- 导出 PDF
+比如：
+
+```text
+subjects/CSCI/
+  ARIN5204 Reinforcement Learning/
+  COMP7404 Machine Learning in Trading and Finance/
+```
+
+这时候你要进入具体课程目录再工作，比如：
+
+```text
+subjects/CSCI/ARIN5204 Reinforcement Learning/
+```
+
+#### 情况 B：这个 subject 本身就是工作空间
+
+比如：
+
+```text
+subjects/HEALTH/
+subjects/INTERVIEW/
+```
+
+这种情况下，直接在 subject 根目录工作就行。
 
 ### 3. 新资料直接丢进去
 
@@ -79,10 +110,10 @@ materials/inbox/
 不用太担心流程卡得很死。  
 这个仓库本来就是给强模型用的，很多时候你只要把文件放对位置，再把情况说清楚，它自己就能接住。
 
-### 4. 问问题就在 workspace 里问
+### 4. 问问题就在目标空间里问
 
 平时问答不要在根目录问。  
-根目录只做管理；真正回答内容问题的，是 leaf workspace 里的 agent。
+根目录只做管理；真正回答内容问题的，是具体 subject 空间或课程目录里的 agent。
 
 ## 最快上手
 
@@ -105,40 +136,40 @@ uv sync
 
 ### 直接跑一遍
 
-1. 新建学科
+1. 新建一个标准课程集合 subject
 
 ```bash
 uv run python scripts/scaffold.py add-subject CSCI "Computer Science"
 ```
 
-2. 新建一个标准课程 workspace
+2. 在这个 subject 下面新建一门课
 
 ```bash
 uv run python scripts/scaffold.py add-course CSCI ARIN5204 "Reinforcement Learning"
 ```
 
-3. 或者显式指定 kind
+3. 新建一个顶层 singleton subject
 
 ```bash
-uv run python scripts/scaffold.py add-workspace CSCI RL "Reinforcement Learning" --kind course
+uv run python scripts/scaffold.py add-subject HEALTH "Health" --kind health_coach --mode singleton
 ```
 
 4. 如果没有合适 kind，就先克隆一个新的 kind 再用
 
 ```bash
-uv run python scripts/scaffold.py add-kind health_coach --name "Health Coach" --description "Leaf workspace for health coaching" --from-kind course
-uv run python scripts/scaffold.py add-workspace HEALTH COACH "Health Coach" --kind health_coach
+uv run python scripts/scaffold.py add-kind interview_coach --name "Interview Coach" --description "Personal interview preparation space" --from-kind course
+uv run python scripts/scaffold.py add-subject INTERVIEW "Interview" --kind interview_coach --mode singleton
 ```
 
 ## 日常怎么用
 
 一个很顺手的节奏通常是这样：
 
-1. 在根目录让教务处 agent 帮你建好 workspace
-2. 进入对应 workspace
+1. 在根目录让教务处 agent 帮你建好 subject 或 course
+2. 进入具体工作的目录
 3. 把资料丢进 `materials/inbox/`
 4. 让 agent 做 intake / index / chapter
-5. 之后所有课程问题都在这个 workspace 里问
+5. 之后所有内容问题都在这个空间里问
 6. 需要导出时再转 PDF
 
 我自己的建议是：  
@@ -162,14 +193,14 @@ uv run python scripts/scaffold.py add-workspace HEALTH COACH "Health Coach" --ki
 - `templates/INDEX.md`
   当前有哪些 kind
 
-### 每个 workspace
+### 每个 active 空间
 
 - `CLAUDE.md`
-  这个 workspace 的稳定内核
+  这个空间的稳定内核
 - `PROFILE.md`
-  这个 workspace 的本地定制
+  这个空间的本地定制
 - `skills/`
-  这个 workspace 的附加能力
+  这个空间的附加能力
 - `indexes/INDEX.md`
   source 和 note 的索引表
 - `memory/MEMORY.md`
@@ -181,7 +212,7 @@ uv run python scripts/scaffold.py add-workspace HEALTH COACH "Health Coach" --ki
 
 我建议按这个顺序改：
 
-1. 先改 workspace 里的 `PROFILE.md`
+1. 先改当前空间里的 `PROFILE.md`
 2. 再按需要加 `skills/*.md`
 3. 只有真的要改“这个 kind 的通用行为”时，才去改 `templates/<kind>/`
 4. 根目录 `CLAUDE.md` 尽量保持稳定
@@ -189,18 +220,18 @@ uv run python scripts/scaffold.py add-workspace HEALTH COACH "Health Coach" --ki
 简单理解就是：
 
 - 根目录 agent 尽量别乱漂
-- 具体 workspace 可以很自由
+- 具体空间可以很自由
 
 ## 进阶玩法
 
 如果你只是拿它来管几门课，上面的用法已经够了。  
 如果你想把它玩得更顺手，下面这些是我自己比较推荐的进阶操作。
 
-### 1. 让每个 workspace agent 长出自己的功能
+### 1. 让每个空间里的 agent 长出自己的功能
 
-这个仓库不是要把每个 workspace 都锁死成同一种样子。
+这个仓库不是要把每个空间都锁死成同一种样子。
 
-你完全可以直接和某个 workspace 里的 agent 对话，让它按照你的需求去定制自己。
+你完全可以直接和某个空间里的 agent 对话，让它按照你的需求去定制自己。
 
 例如：
 
@@ -215,7 +246,7 @@ uv run python scripts/scaffold.py add-workspace HEALTH COACH "Health Coach" --ki
 - `PROFILE.md`
 - `skills/*.md`
 
-只有真的要改这个 workspace 的底层契约时，再碰 `CLAUDE.md`。
+只有真的要改这个空间的底层契约时，再碰 `CLAUDE.md`。
 
 ### 2. 不止是课程，你可以自己长出新的 kind
 
@@ -233,10 +264,10 @@ uv run python scripts/scaffold.py add-workspace HEALTH COACH "Health Coach" --ki
 
 用法也很直接：
 
-- 先告诉教务处你想要一个什么样的 workspace
+- 先告诉教务处你想要一个什么样的 subject
 - 让它检查现在有没有合适的 kind
 - 如果没有，就让它新建一个
-- 然后以后同类 workspace 都沿用这个 kind
+- 然后以后同类 subject 都沿用这个 kind
 
 这也是这个仓库最有意思的地方之一：  
 你不是只在“使用模板”，你其实可以慢慢把模板库本身养出来。
@@ -261,13 +292,14 @@ python3 scripts/scaffold.py list
 python3 scripts/scaffold.py list-kinds
 python3 scripts/scaffold.py rebuild
 python3 scripts/audit.py .
-python3 scripts/audit.py "subjects/CSCI/workspaces/RL Reinforcement Learning"
+python3 scripts/audit.py "subjects/CSCI/ARIN5204 Reinforcement Learning"
+python3 scripts/audit.py "subjects/HEALTH"
 ```
 
 如果你要导出 Markdown 笔记：
 
 ```bash
-uv run python scripts/md_to_pdf.py "subjects/CSCI/workspaces/RL Reinforcement Learning"
+uv run python scripts/md_to_pdf.py "subjects/CSCI/ARIN5204 Reinforcement Learning"
 ```
 
 ## 我自己的建议
@@ -277,7 +309,7 @@ uv run python scripts/md_to_pdf.py "subjects/CSCI/workspaces/RL Reinforcement Le
 更好的用法是：
 
 - 让根目录 agent 负责建制
-- 让 workspace agent 负责治学
+- 让具体空间里的 agent 负责治学或执行
 - 让 `notes/chapters/` 成为主知识层
 - 让普通问答停留在当前会话里
 - 真正需要沉淀时，再更新索引和笔记
@@ -293,8 +325,8 @@ uv run python scripts/md_to_pdf.py "subjects/CSCI/workspaces/RL Reinforcement Le
 
 如果你想看：
 
-- 为什么只有两层 agent
-- 为什么要有 `kind`
+- 为什么我把 `kind` 前置到了 `subject` 层
+- 为什么 `CSCI` 是课程集合，而 `Health` 可以直接是顶层空间
 - 为什么我把 `PROFILE.md` 和 `skills/` 拆出来
 - 为什么问答默认不落盘
 

@@ -3,8 +3,8 @@
 Convert Markdown workspace notes to styled PDFs with math support.
 
 Examples:
-    uv run python scripts/md_to_pdf.py "subjects/CSCI/workspaces/ARIN5204 Reinforcement Learning"
-    uv run python scripts/md_to_pdf.py "subjects/CSCI/workspaces/ARIN5204 Reinforcement Learning" --files chapter01_intro.md
+    uv run python scripts/md_to_pdf.py "subjects/CSCI/ARIN5204 Reinforcement Learning"
+    uv run python scripts/md_to_pdf.py "subjects/CSCI/ARIN5204 Reinforcement Learning" --files chapter01_intro.md
 """
 
 from __future__ import annotations
